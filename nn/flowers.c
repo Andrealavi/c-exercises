@@ -8,6 +8,8 @@
  * network complexity (we have two hidden layers instead of one) and
  * the usage of an external dataset.
  *
+ * To compile the code use the following command:
+ * clang -O3 -o flowers ../csv_parser/csv_parser.c flowers.c
  */
 
 #include "../csv_parser/csv_parser.h"
