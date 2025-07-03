@@ -356,6 +356,8 @@ int main(void) {
     NeuralNetwork nn;
     nn_init(&nn);
 
+    // Here you have to put your dataset file
+    // The iris dataset can be found at https://archive.ics.uci.edu/dataset/53/iris
     CsvParser *dataset = csv_parser_create("iris.data.csv", ',', 0);
     csv_parser_parse(dataset);
 
