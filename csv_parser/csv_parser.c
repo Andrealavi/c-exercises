@@ -38,6 +38,7 @@ CsvParser* csv_parser_create(char *filename, char delimiter, int has_header) {
     parser->data = NULL;
     parser->buffer = NULL;
     parser->errorMessage = NULL;
+    parser->ref_counter = NULL;
 
     parser->num_cols = 0;
     parser->num_rows = 0;
@@ -199,18 +200,86 @@ int csv_parser_parse(CsvParser *parser) {
     // later.
     parser->buffer = buffer;
 
+    parser->ref_counter = malloc(sizeof(int));
+    *(parser->ref_counter) = 1;
+
     return 0;
 }
 
+// This function allow the user to horizontally split the csv content.
+//
+// It can be useful when dealing with some datasets that have to be split
+// into training and testing.
+//
+// E.g.
+//
+// 5.1,3.5,1.4,0.2,Iris-setosa
+// 4.9,3.0,1.4,0.2,Iris-setosa
+// 4.7,3.2,1.3,0.2,Iris-setosa
+// --------------------------- We split the dataset here
+// 4.6,3.1,1.5,0.2,Iris-setosa
+// 5.0,3.6,1.4,0.2,Iris-setosa
+// 5.4,3.9,1.7,0.4,Iris-setosa
+//
+// To make the split operation fast, we simply work with pointers
+// without making any actual copy of the data.
+// Specifically, we create a new parser object with the same data
+// from the original parser and,
+// then, we make the new parser to point towards the rows of the old parser.
+// Finally, we reduce the number of columns of the original parser.
+//
+// This approach is simple to implement but has some flaws, because if we want
+// to destroy the original parser but to use the new one, we will erase
+// the memory allocated and that will lead to a segmentation fault since we will
+// free the memory used by the new parser. To avoid this we introduced,
+// reference pointing and we increment the counter every time we split.
+// The counter is managed using an integer pointer, so that it can be shared
+// among all the parsers objects that refer to the same portion of memory.
+CsvParser* csv_parser_split(CsvParser *parser, int row) {
+    // Creation of the new parser and set up of its attributes
+    CsvParser *new_parser = csv_parser_create(
+        parser->filename, parser->delimiter, 0
+    );
+
+    new_parser->data = malloc(parser->num_rows * sizeof(char**));
+    new_parser->num_cols = parser->num_cols;
+    new_parser->num_rows = parser->num_rows - row;
+    new_parser->buffer = parser->buffer;
+
+    // Increasing reference counter to take multiple reference into account
+    new_parser->ref_counter = parser->ref_counter;
+    *(new_parser->ref_counter) += 1;
+
+    // Linking new parser row pointers to the correspondent
+    // parser row pointers.
+    for (int i = 0, j = row; i < new_parser->num_rows; i++, j++) {
+        new_parser->data[i] = parser->data[j];
+    }
+
+    parser->num_rows = row;
+
+    return new_parser;
+}
+
 // Function that frees the memory allocated
+//
+// The function take into account the possibility
+// of multiple references. So, it checks if the reference
+// counter is lower or equal to one, otherwise it will just
+// decrement the counter and free parser->data.
 void csv_parser_destroy(CsvParser *parser) {
     if (parser == NULL) return;
 
-    free(parser->filename);
-    free(parser->buffer);
+    if (*(parser->ref_counter) <= 1) {
+        free(parser->filename);
+        free(parser->buffer);
+        free(parser->ref_counter);
 
-    if (parser->data != NULL) free(parser->data[0]);
+        if (parser->data != NULL) free(parser->data[0]);
+    } else {
+        *(parser->ref_counter) -= 1;
+    }
+
     free(parser->data);
-
     free(parser);
 }
